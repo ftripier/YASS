@@ -118,17 +118,18 @@ impl StabilizerSimulator {
     }
 
     pub fn measure(&mut self) -> bool {
-        // a state can either be stabilized by pauli X, or pauli Z, but not both, since
-        // these two operators are conjugates of each other.
-        assert!(self.stabilizer_has_x_component || self.stabilizer_has_z_component);
-        if self.stabilizer_has_z_component {
-            self.generator_sign_is_negated
-        } else {
+        if  self.stabilizer_has_x_component{
             // we are stabilized by pauli X, so we are one of the longitudinal
             // eigenstates of the X operator. In the Z basis, these states
             // are superpositions of |0> and |1>, so we should return a
             // uniformly random selection of either true or false
             self.rand.gen()
+        } else {
+            // if our state is not stabilized by X, then it is stabilized by Z.
+            // In the Z basis, these states are eigenstates of the Z operator,
+            // If it is stabilized by -Z, then the state is |1>, and we should return true.
+            // If it is stabilized by Z, then the state is |0>, and we should return false.
+            self.generator_sign_is_negated
         }
     }
 }
