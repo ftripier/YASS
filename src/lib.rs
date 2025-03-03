@@ -83,7 +83,7 @@ impl StabilizerSimulator {
             }
             Gate::Y => {
                 // Y = iXZ, so applying Y is equivalent to applying X and Z in sequence.
-                // If you were stabilized by X, the stabilizer operator sign ins flipped by applying Z.
+                // If you were stabilized by X, the stabilizer operator sign is flipped by applying Z.
                 // If you were stabilized by Z, the stabilizer operator sign is flipped by applying X.
                 // If you were stabilized by Y, then nothing happens.
                 // That means we need X XOR Z in the stabilizer to determine if we need to flip the sign.
