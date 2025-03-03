@@ -1,5 +1,11 @@
 use rand::Rng;
 
+// clifford gates.
+// they can all be generated
+// by H and S, but I wanted
+// to reason through the action
+// of all the standard clifford gates
+// on their own.
 pub enum Gate {
     H,
     X,
