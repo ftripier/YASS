@@ -85,7 +85,13 @@ impl StabilizerSimulator {
                     self.stabilizer_has_x_component ^ self.stabilizer_has_z_component;
             }
             Gate::S => {
-                unimplemented!()
+                // swaps if a state is stabilized by X or Y. Flips the sign of the operator if the
+                // state was previously stabilized by Y. We're just going around the clock
+                // of the X Y longitudinal eigenstates, basically.
+                // Stabilized by X -> Stabilized by Y -> Stabilized by -X -> Stabilized by -Y -> Stabilized by X, etc.
+                self.generator_sign_is_negated ^=
+                    self.stabilizer_has_x_component && self.stabilizer_has_z_component;
+                self.stabilizer_has_z_component ^= self.stabilizer_has_x_component;
             }
             Gate::Si => {
                 unimplemented!()
@@ -170,5 +176,15 @@ mod test {
         stabilizer.apply_gate(&Gate::X);
         stabilizer.apply_gate(&Gate::H);
         assert!(!stabilizer.measure());
+    }
+
+    #[test]
+    fn test_h_s_s_h_equals_x() {
+        let mut stabilizer = StabilizerSimulator::seeded();
+        stabilizer.apply_gate(&Gate::H);
+        stabilizer.apply_gate(&Gate::S);
+        stabilizer.apply_gate(&Gate::S);
+        stabilizer.apply_gate(&Gate::H);
+        assert!(stabilizer.measure());
     }
 }
