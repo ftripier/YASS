@@ -18,8 +18,8 @@ pub enum Gate {
 // special focus on performance.
 pub struct StabilizerSimulator {
     generator_sign_is_negated: bool,
-    x_is_a_stabilizer: bool,
-    z_is_a_stabilizer: bool,
+    stabilizer_has_x_component: bool,
+    stabilizer_has_z_component: bool,
     rand: rand::rngs::StdRng,
 }
 
@@ -27,8 +27,8 @@ impl StabilizerSimulator {
     pub fn new(seed: u64) -> StabilizerSimulator {
         StabilizerSimulator {
             generator_sign_is_negated: false,
-            x_is_a_stabilizer: false,
-            z_is_a_stabilizer: true,
+            stabilizer_has_x_component: false,
+            stabilizer_has_z_component: true,
             rand: rand::SeedableRng::seed_from_u64(seed),
         }
     }
@@ -41,19 +41,21 @@ impl StabilizerSimulator {
         match gate {
             Gate::H => {
                 // H exchanges the x and z stabilizers, that much is obvious to me.
-                std::mem::swap(&mut self.x_is_a_stabilizer, &mut self.z_is_a_stabilizer);
+                std::mem::swap(
+                    &mut self.stabilizer_has_x_component,
+                    &mut self.stabilizer_has_z_component,
+                );
                 // but what is the impact on the phase?
                 // So, in general H swaps the affect of Pauli X and Pauli Z.
                 // That alone shouldn't affect the sign of generators that stabilize
-                // the state for eigenstates of either X or Z. You cannot be an
-                // eigenstate of both X and Z, since they are conjugates of each other.
-                // But, you can be an eigenstate of neither. In that case, you are
+                // the state for eigenstates of either X or Z individually. If the stabilizer has
+                // both an X and a Y component on the qubit, you are
                 // an eigenstate of Y, and therefore either stabilized by Y or -Y,
                 // and thus either iXZ or iZX. H would swap the X and Z parts of these
                 // generators, which changes the sign of which Y operator stabilizes
                 // the state. So I guess we need to flip the phase of the generator
                 // if and only if the state is stabilized by Y.
-                if !self.x_is_a_stabilizer && !self.z_is_a_stabilizer {
+                if self.stabilizer_has_x_component && self.stabilizer_has_z_component {
                     self.generator_sign_is_negated = !self.generator_sign_is_negated;
                 }
             }
@@ -61,7 +63,7 @@ impl StabilizerSimulator {
                 // do not affect a state stabilized by X, tautologically.
                 // However, states stabilized by Z/-Z will now only be stabilized by their
                 // respective negated operator.
-                if self.z_is_a_stabilizer {
+                if self.stabilizer_has_z_component {
                     self.generator_sign_is_negated = !self.generator_sign_is_negated;
                 }
             }
@@ -69,14 +71,18 @@ impl StabilizerSimulator {
                 // do not affect a state stabilized by Z, tautologically.
                 // However, states stabilized by X/-X will now only be stabilized by their
                 // respective negated operator.
-                if self.x_is_a_stabilizer {
+                if self.stabilizer_has_x_component {
                     self.generator_sign_is_negated = !self.generator_sign_is_negated;
                 }
             }
             Gate::Y => {
-                // applying a Y gate to a pauli string would flip both the X and Z parts of the tableau.
-                // what does that mean for the generators?
-                unimplemented!()
+                // Y = iXZ, so applying Y is equivalent to applying X and Z in sequence.
+                // If you were stabilized by X, the stabilizer operator sign ins flipped by applying Z.
+                // If you were stabilized by Z, the stabilizer operator sign is flipped by applying X.
+                // If you were stabilized by Y, then nothing happens.
+                // That means we need X XOR Z in the stabilizer to determine if we need to flip the sign.
+                self.generator_sign_is_negated =
+                    self.stabilizer_has_x_component ^ self.stabilizer_has_z_component;
             }
             Gate::S => {
                 unimplemented!()
@@ -102,8 +108,8 @@ impl StabilizerSimulator {
     pub fn measure(&mut self) -> bool {
         // a state can either be stabilized by pauli X, or pauli Z, but not both, since
         // these two operators are conjugates of each other.
-        assert!(self.x_is_a_stabilizer || self.z_is_a_stabilizer);
-        if self.z_is_a_stabilizer {
+        assert!(self.stabilizer_has_x_component || self.stabilizer_has_z_component);
+        if self.stabilizer_has_z_component {
             self.generator_sign_is_negated
         } else {
             // we are stabilized by pauli X, so we are one of the longitudinal
@@ -146,5 +152,23 @@ mod test {
         stabilizer.apply_gate(&Gate::H);
         stabilizer.apply_gate(&Gate::Z);
         assert!(stabilizer.measure());
+    }
+
+    #[test]
+    fn test_h_y_h_equals_y() {
+        let mut stabilizer = StabilizerSimulator::seeded();
+        stabilizer.apply_gate(&Gate::Y);
+        stabilizer.apply_gate(&Gate::H);
+        stabilizer.apply_gate(&Gate::Y);
+        assert!(stabilizer.measure());
+    }
+
+    #[test]
+    fn test_h_x_h_equals_z() {
+        let mut stabilizer = StabilizerSimulator::seeded();
+        stabilizer.apply_gate(&Gate::H);
+        stabilizer.apply_gate(&Gate::X);
+        stabilizer.apply_gate(&Gate::H);
+        assert!(!stabilizer.measure());
     }
 }
