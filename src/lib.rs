@@ -83,10 +83,15 @@ impl<const N: usize> StabilizerSimulator<N> {
             // on the gates enum. This is probably only important in a world
             // where I have multiple clients for the gate type, which seems
             // out of scope for this project.
+            //
+            // All gates act on stabilizer and destabilizer generators in the same way,
+            // given that they maintain their initial relationships to each other as an invariant.
+            //
+            // In particular, you need all destabilizers to commute with each other, and for
+            // each i in 1..n, the ith destabilizer must anticommute with the ith stabilizer,
+            // but commute with all other stabilizers. This is the tableau convention.
             Gate::H(qubit) => {
                 for i in 0..N {
-                    // Hadamard acts on stabilizers and destabilizers homogenously, given that they maintain
-                    // their relationship to each other as an invariant.
                     for generator in
                         [&mut self.stabilizers[i], &mut self.destabilizers[i]].iter_mut()
                     {
@@ -112,8 +117,6 @@ impl<const N: usize> StabilizerSimulator<N> {
             }
             Gate::S(qubit) => {
                 for i in 0..N {
-                    // S acts on stabilizers and destabilizers homogenously, given that they maintain
-                    // their relationship to each other as an invariant.
                     for generator in
                         [&mut self.stabilizers[i], &mut self.destabilizers[i]].iter_mut()
                     {
