@@ -240,14 +240,14 @@ impl<const N: usize> StabilizerSimulator<N> {
         // try and determine if Z or -Z on the qubit is a stabilizer of the state.
         // You need to sum up a subset of stabilizer generators that produces +-Z[qubit] with
         // identity on all other qubits. The choice of which stabilizers to include in this
-        // group product is based on if their corresponding destabilizer anticommutes with
-        // +-Z[qubit] -- the destabilizers in the tableau convention are constructed so that
-        // only corresponding stabilizers and destabilizers anticommute with each other, so you
-        // know that all stabilizers that _are_ involved in the group product to construct Z[qubit]
-        // must have a corresponding destabilizer that anticommutes with Z[qubit]. In other words,
-        // destabilizers are intentionally constructed to maintain an invariant that they associate
-        // one-to-one with the stabilizer on the corresponding index, and that if a stabilizer generator would
-        // be part of a group product to produce a stabilizer, the corresponding destabilizer generator
+        // group product is predicated on their corresponding destabilizer anticommuting with
+        // +-Z[qubit]; the destabilizers in the tableau convention are constructed so that
+        // only corresponding stabilizers and destabilizers anticommute with each other. This implies
+        // that all stabilizers that _are_ involved in the group product to construct Z[qubit]
+        // must have a corresponding destabilizer that anticommutes with Z[qubit].
+        // In other words, destabilizers are intentionally constructed to maintain an invariant that they anticommute
+        // one-to-one with the stabilizer on the corresponding index. This means if a stabilizer generator would
+        // be part of a group product to produce a given stabilizer element, the corresponding destabilizer generator
         // would anticommute with the stabilizer generator.
         for (destabilizer_row, stabilizer_row) in self
             .destabilizers
