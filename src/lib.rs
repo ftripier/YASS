@@ -3,9 +3,9 @@ use std::mem;
 
 pub enum Gate {
     // keep qubit indiciis as u32 for some
-    // semblence of an upper bound on qubit type.
+    // semblance of an upper bound on the number of qubits.
     // has the benefit of preparing the code to handle
-    // type indirection between qubiut register vector indexing
+    // type indirection between qubit register vector indexing
     // (in usize) and qubit index (in u32 for now).
     H(u32),
     S(u32),
