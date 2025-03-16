@@ -19,7 +19,7 @@ pub enum Gate {
 // later -- we should probably back storage
 // by vectors.
 #[derive(Debug)]
-struct StabilizerRow<const N: usize> {
+struct TableauGeneratorRow<const N: usize> {
     phase_is_negated: bool,
     x_bits: [bool; N],
     z_bits: [bool; N],
@@ -30,23 +30,23 @@ struct StabilizerRow<const N: usize> {
 // destabilizers for n qubits, and supports
 // h, s, and cnot.
 pub struct StabilizerSimulator<const N: usize> {
-    stabilizers: [StabilizerRow<N>; N],
-    destabilizers: [StabilizerRow<N>; N],
+    stabilizers: [TableauGeneratorRow<N>; N],
+    destabilizers: [TableauGeneratorRow<N>; N],
     measured: [bool; N],
     rand: rand::rngs::StdRng,
 }
 
 impl<const N: usize> StabilizerSimulator<N> {
     pub fn new(seed: u64) -> StabilizerSimulator<N> {
-        let mut initial_stabilizers: [StabilizerRow<N>; N] = unsafe { mem::zeroed() };
-        let mut initial_destabilizers: [StabilizerRow<N>; N] = unsafe { mem::zeroed() };
+        let mut initial_stabilizers: [TableauGeneratorRow<N>; N] = unsafe { mem::zeroed() };
+        let mut initial_destabilizers: [TableauGeneratorRow<N>; N] = unsafe { mem::zeroed() };
         for i in 0..N {
-            initial_stabilizers[i] = StabilizerRow {
+            initial_stabilizers[i] = TableauGeneratorRow {
                 phase_is_negated: false,
                 x_bits: [false; N],
                 z_bits: [false; N],
             };
-            initial_destabilizers[i] = StabilizerRow {
+            initial_destabilizers[i] = TableauGeneratorRow {
                 phase_is_negated: false,
                 x_bits: [false; N],
                 z_bits: [false; N],
@@ -198,8 +198,8 @@ impl<const N: usize> StabilizerSimulator<N> {
     }
 
     fn rowsum(
-        row_h: &mut StabilizerRow<N>,
-        row_i: &mut StabilizerRow<N>,
+        row_h: &mut TableauGeneratorRow<N>,
+        row_i: &mut TableauGeneratorRow<N>,
     ) -> Result<(), &'static str> {
         let mut exponent_sum: i32 = 0;
         for j in 0..N {
@@ -229,14 +229,23 @@ impl<const N: usize> StabilizerSimulator<N> {
     }
 
     fn determine_deterministic_measurement(&mut self, qubit: u32) -> Result<bool, &'static str> {
-        let mut scratch_row = StabilizerRow {
+        let mut scratch_row = TableauGeneratorRow {
             phase_is_negated: false,
             x_bits: [false; N],
             z_bits: [false; N],
         };
         // try and determine if Z or -Z on the qubit is a stabilizer of the state.
-        // TODO: I don't unduerstand this as well as I'd like. Lemme dive in on
-        // this point.
+        // You need to sum up a subset of stabilizer generators that produces +-Z[qubit] with
+        // identity on all other qubits. The choice of which stabilizers to include in this
+        // group product is based on if their corresponding destabilizer anticommutes with
+        // +-Z[qubit] -- the destabilizers in the tableau convention are constructed so that
+        // only corresponding stabilizers and destabilizers anticommute with each other, so you
+        // know that all stabilizers that _are_ involved in the group product to construct Z[qubit]
+        // must have a corresponding destabilizer that anticommutes with Z[qubit]. In other words,
+        // destabilizers are intentionally constructed to maintain an invariant that they associate
+        // one-to-one with the stabilizer on the corresponding index, and that if a stabilizer generator would
+        // be part of a group product to produce a stabilizer, the corresponding destabilizer generator
+        // would anticommute with the stabilizer generator.
         for (destabilizer_row, stabilizer_row) in self
             .destabilizers
             .iter_mut()
