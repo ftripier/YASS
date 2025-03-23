@@ -1,8 +1,6 @@
+use crate::gates::Gate;
 use rand::Rng;
 use std::mem;
-use crate::gates::Gate;
-
-
 
 // TODO: const N is a choice. It makes things
 // easy, but it means
@@ -10,7 +8,7 @@ use crate::gates::Gate;
 // dynamically. This is something to fix
 // later -- we should probably back storage
 // by vectors.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TableauGeneratorRow<const N: usize> {
     phase_is_negated: bool,
     x_bits: [bool; N],
@@ -24,7 +22,6 @@ struct TableauGeneratorRow<const N: usize> {
 pub struct StabilizerSimulator<const N: usize> {
     stabilizers: [TableauGeneratorRow<N>; N],
     destabilizers: [TableauGeneratorRow<N>; N],
-    measured: [bool; N],
     rand: rand::rngs::StdRng,
 }
 
@@ -58,7 +55,6 @@ impl<const N: usize> StabilizerSimulator<N> {
         }
 
         StabilizerSimulator {
-            measured: [false; N],
             stabilizers: initial_stabilizers,
             destabilizers: initial_destabilizers,
             rand: rand::SeedableRng::seed_from_u64(seed),
@@ -172,12 +168,7 @@ impl<const N: usize> StabilizerSimulator<N> {
         // are there no stabilizer rows with an X component at the qubit?
         // if so, we're chillin -- we are already in the Z measurement basis because
         // we are either stabilized by Z or -Z, and so either |0> or |1>.
-        for i in 0..N {
-            if self.stabilizers[i].x_bits[qubit as usize] {
-                return false;
-            }
-        }
-        true
+        self.find_x_stabilizer_index(qubit).is_none()
     }
 
     fn pauli_imaginary_phase_exponent(x1: bool, z1: bool, x2: bool, z2: bool) -> i32 {
@@ -194,7 +185,7 @@ impl<const N: usize> StabilizerSimulator<N> {
 
     fn rowsum(
         row_h: &mut TableauGeneratorRow<N>,
-        row_i: &mut TableauGeneratorRow<N>,
+        row_i: &TableauGeneratorRow<N>,
     ) -> Result<(), &'static str> {
         let mut exponent_sum: i32 = 0;
         for j in 0..N {
@@ -221,6 +212,81 @@ impl<const N: usize> StabilizerSimulator<N> {
             row_h.z_bits[j] ^= row_i.z_bits[j];
         }
         Ok(())
+    }
+
+    fn find_x_stabilizer_index(&self, qubit: u32) -> Option<usize> {
+        self.stabilizers
+            .iter()
+            .position(|row| row.x_bits[qubit as usize])
+    }
+
+    fn extract_stabilizer_p_after_flipping_preparing_other_stabilizers_to_expect_collapsed_state(
+        &mut self,
+        qubit: u32,
+        p: usize,
+    ) -> Result<(), &'static str> {
+        // helper method for nondeterministic_measurement
+        let p_stabilizer = self.stabilizers[p].clone();
+        for i in 0..N {
+            if i == p {
+                continue;
+            }
+            if self.stabilizers[i].x_bits[qubit as usize] {
+                Self::rowsum(&mut self.stabilizers[i], &p_stabilizer)?;
+            }
+            if self.destabilizers[i].x_bits[qubit as usize] {
+                Self::rowsum(&mut self.destabilizers[p], &p_stabilizer)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn collapse_p_stabilizer_and_return_measurement_outcome(
+        &mut self,
+        p: usize,
+        qubit: u32,
+    ) -> Result<bool, &'static str> {
+        // helper method for nondeterministic_measurement
+        let old_p_stabilizer = mem::replace(
+            &mut self.stabilizers[p],
+            TableauGeneratorRow {
+                phase_is_negated: self.rand.gen_bool(0.5),
+                x_bits: [false; N],
+                z_bits: [false; N],
+            },
+        );
+        self.stabilizers[p].z_bits[qubit as usize] = true;
+        self.destabilizers[p] = old_p_stabilizer;
+        Ok(self.stabilizers[p].phase_is_negated)
+    }
+
+    fn nondeterministic_measurement(&mut self, qubit: u32) -> Result<bool, &'static str> {
+        // 1. find index p amoung stabilizers such that stabilizers[p][x_bits][qubit] = 1
+        //
+        // 1. add all rows (i, p)  for all i over stabilizers[i] and destabilizers[i] such
+        // that i != p and x_ia = 1
+        //
+        // 2. set the corresponding destabilizer[p] to be equal to the former destabilizer row.
+        //
+        // 3. set the pth row to be identically 0 except for z[qubit] = 1, and the phase is either
+        // negated or not with equal probability. Return if the phase was negated or not as the measurement outcome.
+        //
+        //
+        // This mimes the process of collapsing the state at the qubit to either |0> or |1>.
+        // First you prepare the tableau to accept the new reality of a collapsed measurement
+        // on the P stabilizer by mutating stabilizers with an x component on the qubit
+        // to now stabilize the state in the Z basis.
+        // Then you make sure the pth stabilizer's destabilizer is prepared to anticommute with the
+        // stabilizer.
+        // Then you collapse the pth stabilizer to either |0> or |1> by setting the z component
+        // to 1, and the phase to either -1 or 1 with equal probability.
+        let p = self.find_x_stabilizer_index(qubit);
+        if p.is_none() {
+            return Err("No stabilizer row with X component at qubit -- we should've checked for this already when we were determining if the measurement was deterministic or not.");
+        }
+        let p = p.unwrap();
+        self.extract_stabilizer_p_after_flipping_preparing_other_stabilizers_to_expect_collapsed_state(qubit, p)?;
+        self.collapse_p_stabilizer_and_return_measurement_outcome(p, qubit)
     }
 
     fn determine_deterministic_measurement(&mut self, qubit: u32) -> Result<bool, &'static str> {
@@ -254,26 +320,18 @@ impl<const N: usize> StabilizerSimulator<N> {
     }
 
     pub fn measure(&mut self, qubit: u32) -> Result<bool, &'static str> {
-        if self.measured[qubit as usize] {
-            return Err("Qubit already measured");
-        }
-        self.measured[qubit as usize] = true;
         if self.is_deterministic(qubit) {
             self.determine_deterministic_measurement(qubit)
         } else {
-            // uniformly random distribution over {|0>, |1>} since
-            // you are stabilized by some X/Y stabilizer, and therefore
-            // in an even superposition of |0> and |1>.
-            // TODO: change the state after measurement.
-            // for now, just permanently collapse measured
-            // qubits.
-            Ok(self.rand.gen_bool(0.5))
+            self.nondeterministic_measurement(qubit)
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
+
     use super::*;
 
     #[test]
@@ -310,5 +368,43 @@ mod test {
         stabilizer.apply_gate(&Gate::Cx(0, 1));
         assert!(stabilizer.measure(0).unwrap());
         assert!(stabilizer.measure(1).unwrap());
+    }
+
+    #[test]
+    fn test_nondeterministic_measurement() {
+        // tests that we can expect either |0> or |1> when preparing and measuring multiple copies of
+        // |+> |-> or the Y eigenstates. Our stabilizer simulator is seeded, so, once we have passed
+        // with a given configuration, we should expect this test to pass deterministically.
+
+        let mut stabilizer: StabilizerSimulator<2> = StabilizerSimulator::seeded();
+        let mut results = HashSet::new();
+        // s_reps = 0, 1, 2, 3.
+        // The amount of s gates to apply after hadamard.
+        // Lets us check all possible single
+        // qubit superpositon states.
+        for s_reps in 0..4 {
+            // try multiple times so we can be relatively sure
+            // we will produce either |0> or |1> at least once.
+            // We only have 1 - 0.5^10 chance of not getting either,
+            // e.g. 99.9%+ chance of getting getting both.
+            for _ in 0..10 {
+                stabilizer.apply_gate(&Gate::H(0));
+                for _ in 0..s_reps {
+                    // the amount of additional S gates determines
+                    // which X/Y eigenstate we are in.
+                    // 0 -- |+>
+                    // 1 -- Y stabilizer state
+                    // 2 -- |->
+                    // 3 -- -Y stabilizer state
+                    stabilizer.apply_gate(&Gate::S(0));
+                }
+                let result = stabilizer.measure(0).unwrap();
+                results.insert(result);
+            }
+            assert!(results.len() == 2);
+            assert!(results.contains(&true));
+            assert!(results.contains(&false));
+            results.clear();
+        }
     }
 }
